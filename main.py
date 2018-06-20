@@ -48,6 +48,8 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
     best_model_wts = copy.deepcopy(model.state_dict())
     best_loss = 1e5 # set to some large enough value
 
+    logfile = '{}.log'.format(datetime.now().strftime('%Y%m%d%H%M%S'))
+
     for epoch in range(num_epochs):
         print('Epoch {}/{}'.format(epoch, num_epochs - 1))
         print('-' * 10)
@@ -82,8 +84,11 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
                         loss.backward()
                         optimizer.step()
 
-                info = 'Epoch: {:0>3d} {:0>5d}/{:0>5d} '.format(epoch, i, len(dataloaders[phase])) + info
-                print(info)
+                if (i%opt.display==0) or (phase=='test'):
+                    info = 'Epoch: {:0>3d} {:0>5d}/{:0>5d} '.format(epoch, i, len(dataloaders[phase])) + info
+                    print(info)
+                    with open('log/{}_{}'.format(phase,logfile),'a') as f:
+                        f.write(info+'\n')
 
             # deep copy the model
             if phase == 'val':
