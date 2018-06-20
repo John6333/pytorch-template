@@ -30,12 +30,12 @@ parser.add_argument('--lr',type=float, default=1e-3, help='initial learning rate
 parser.add_argument('--momentum',type=float, default=0.9, help='SGD momemtum')
 parser.add_argument('--weight_decay',type=float, default=1e-4, help='weight decay')
 parser.add_argument('--epoch_num', type=int, default=100, help='number of epoches to train')
-parser.add_argument('--pretrain', type=str, default='', help='pretrained model to load')
 # dataloader parameters
 parser.add_argument('--workers', type=int, default=16, help='number of data loading workers')
 parser.add_argument('--batch_size', type=int, default=64, help='input batch size')
 parser.add_argument('--subsize', type=float, default=1, help='the propotion of dataset to use')
 # model parameters
+parser.add_argument('--pretrain', type=str, default='', help='pretrained model to load')
 # other parameters
 parser.add_argument('--display', type=int, default=1, help='how often to output results')
 
@@ -61,9 +61,6 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
             else:
                 model.eval()   # Set model to evaluate mode
                 eva = Evaluation(criterion, accumulate=True)
-
-            running_loss = 0.0
-            running_corrects = 0
 
             # Iterate over data.
             for i,(inputs, labels) in enumerate(dataloaders[phase]):
@@ -119,6 +116,11 @@ if __name__ == '__main__':
 
     # Create Model and DataParallel
     net = get_model(nin=128,nout=128).float()
+
+    # load a pretrained model if required
+    if (opt.pretrain != ''):
+        net.load_state_dict(torch.load(opt.pretrain))
+
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
         net = nn.DataParallel(net)
@@ -126,10 +128,6 @@ if __name__ == '__main__':
 
     # print the network
     print(net)
-
-    # load a pretrained model if required
-    if (opt.pretrain != ''):
-        net.load_state_dict(torch.load(opt.pretrain))
 
     # choose a loss function
     criterion = nn.MSELoss()
@@ -149,4 +147,3 @@ if __name__ == '__main__':
 
     # train model
     train_model(net, dataloaders, criterion, optimizer, scheduler, num_epochs=opt.epoch_num)
-
