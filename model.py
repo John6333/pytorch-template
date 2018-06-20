@@ -29,23 +29,23 @@ class DemoNet(nn.Module):
 def get_model(nin=128, nout=256):
     return DemoNet(nin=nin, nout=nout)
 
-# testing model
-import numpy as np
-import torch.optim as optim
-from torch.utils.data import  Dataset,DataLoader
-
-class DummyDataset(Dataset):
-    def __init__(self):
-        self.x = np.random.rand(1000,128)
-        self.y = np.random.rand(1000,256)
-
-    def __len__(self):
-        return self.x.shape[0]
-
-    def __getitem__(self,item):
-        return self.x[item], self.y[item]
-
 if __name__ == '__main__':
+    # testing model
+    import numpy as np
+    import torch.optim as optim
+    from torch.utils.data import  Dataset,DataLoader
+
+    class DummyDataset(Dataset):
+        def __init__(self):
+            self.x = np.random.rand(1000,128)
+            self.y = np.random.rand(1000,256)
+
+        def __len__(self):
+            return self.x.shape[0]
+
+        def __getitem__(self,item):
+            return self.x[item], self.y[item]
+
     critical = nn.MSELoss()
     dataset = DummyDataset()
     dataLoader = DataLoader(dataset=dataset,batch_size=64,shuffle=True)
