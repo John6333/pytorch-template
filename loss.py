@@ -1,29 +1,41 @@
-__all__ = ['Evaluation']
 
-class Evaluation():
+__all__ = ['LossMeter']
+
+class AverageMeter(object):
+    def __init__(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg_meter = self.sum / self.count
+
+class LossMeter():
     def __init__(self, criterion, accumulate=False):
-        self.current_loss = 0
         self.criterion = criterion
         self.accumulate = accumulate
         if self.accumulate:
-            self.accumulated_loss = 0
-            self.count = 0
+            self.avg_meter = AverageMeter()
+        self.info = ''
 
-    def get_performance(self, y_pred,y):
-        self.current_loss = self.criterion(y_pred, y)
+    def update(self, y_pred,y):
+        loss = self.criterion(y_pred, y)
+        self.info = f'loss: {loss.item():.6f}'
         if self.accumulate:
-            self.accumulated_loss += self.current_loss.item()
-            self.count += 1
-        return self.current_loss
+            self.avg_meter.update(loss.item())
+        return loss
 
     def get_info(self):
-        info = 'loss: {:.6f}'.format(self.current_loss.item())
         if self.accumulate:
-            info += ' avg_loss: {:.6f}'.format(self.accumulated_loss/self.count)
-        return info
+            self.info += ' avg_loss: {self.avg_meter.avg:.6f}'
+        return self.info
 
-    def get_accumulated_loss(self):
+    def get_avg(self):
         if self.accumulate:
-            return self.accumulated_loss/self.count
+            return self.avg_meter.avg
         else:
-            return None
+            return 0

@@ -59,10 +59,10 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
             if phase == 'train':
                 scheduler.step()
                 model.train()  # Set model to training mode
-                eva = Evaluation(criterion, accumulate=False)
+                loss_meter = LossMeter(criterion, accumulate=False)
             else:
                 model.eval()   # Set model to evaluate mode
-                eva = Evaluation(criterion, accumulate=True)
+                loss_meter = LossMeter(criterion, accumulate=True)
 
             # Iterate over data.
             for i,(inputs, labels) in enumerate(dataloaders[phase]):
@@ -76,8 +76,8 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
                 # track history if only in train
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = model(inputs)
-                    loss = eva.get_performance(outputs, labels)
-                    info = eva.get_info()
+                    loss = loss_meter.update(outputs, labels)
+                    info = loss_meter.get_info()
 
                     # backward + optimize only if in training phase
                     if phase == 'train':
@@ -92,7 +92,7 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
 
             # deep copy the model
             if phase == 'val':
-                epoch_loss = eva.get_accumulated_loss()
+                epoch_loss = loss_meter.get_avg()
                 if epoch_loss < best_loss:
                     best_loss = epoch_loss
                     best_model_wts = copy.deepcopy(model.state_dict())
