@@ -51,13 +51,16 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
     logfile = '{}.log'.format(datetime.now().strftime('%Y%m%d%H%M%S'))
 
     for epoch in range(num_epochs):
-        print('Epoch {}/{}'.format(epoch, num_epochs - 1))
-        print('-' * 10)
+        scheduler.step()
+        lr = scheduler.get_lr()[0]
+        print("\n==================Epoch=================")
+        print(f'Epoch: {epoch}/{num_epochs-1}')
+        print(f'lr: {lr:.3E}')
+        print("========================================\n")
 
         # Each epoch has a training and validation phase
         for phase in ['train', 'val']:
             if phase == 'train':
-                scheduler.step()
                 model.train()  # Set model to training mode
                 loss_meter = LossMeter(criterion, accumulate=False)
             else:
