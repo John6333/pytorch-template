@@ -1,7 +1,15 @@
 import torch
 import torch.nn as nn
 
-__all__ = ['get_model']
+__all__ = ['get_model', 'weight_init']
+
+def weight_init(m):
+    if isinstance(m, nn.Linear):
+        nn.init.kaiming_normal_(m.weight)
+    elif isinstance(m, nn.Conv2d):
+        nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+    elif isinstance(m, nn.BatchNorm2d):
+        nn.init.constant_(m.weight, 1)
 
 class DemoNet(nn.Module):
     def __init__(self,nin=128,nout=1024):

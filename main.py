@@ -42,6 +42,13 @@ parser.add_argument('--display', type=int, default=1, help='how often to output 
 opt = parser.parse_args()
 print(opt)
 
+def save(model, path):
+    if hasattr(model, 'module'):
+        # wrapped by nn.DataParallel
+        torch.save(model.module.state_dict(), path)
+    else:
+        torch.save(model.state_dict(), path)
+
 def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=1):
     since = time.time()
 
@@ -98,18 +105,13 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
                 epoch_loss = loss_meter.get_avg()
                 if epoch_loss < best_loss:
                     best_loss = epoch_loss
-                    best_model_wts = copy.deepcopy(model.state_dict())
                     # saving model
-                    torch.save(best_model_wts, 'model.pth')
+                    save(model, 'ckpt/model_best.pth')
 
     time_elapsed = time.time() - since
     print('Training complete in {:.0f}m {:.0f}s'.format(
         time_elapsed // 60, time_elapsed % 60))
     print('Best val Acc: {:4f}'.format(best_loss))
-
-    # load best model weights
-    model.load_state_dict(best_model_wts)
-    return model
 
 
 if __name__ == '__main__':
@@ -124,6 +126,12 @@ if __name__ == '__main__':
 
     # Create Model and DataParallel
     net = get_model(nin=128,nout=128).float()
+
+    # print the number of parameters
+    print(">>> total params: {:.2f}M".format(sum(p.numel() for p in net.parameters()) / 1000000.0))
+
+    # initialize network
+    net.apply(weight_init)
 
     # load a pretrained model if required
     if (opt.pretrain != ''):
