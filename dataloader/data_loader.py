@@ -22,7 +22,6 @@ class BasicDataset(Dataset):
             self.x = self.x[sample_index]
             self.y = self.y[sample_index]
 
-
     def __len__(self):
         return self.y.shape[0]
 

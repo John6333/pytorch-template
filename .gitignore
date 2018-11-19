@@ -103,6 +103,7 @@ venv.bak/
 # mypy
 .mypy_cache/
 
-# pytorch models
-model/
-*.pth
+# other directories
+debug
+exp
+progress

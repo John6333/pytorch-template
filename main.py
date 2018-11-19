@@ -1,83 +1,70 @@
 '''
-Implemented Functions:
+Implemented:
     1.  Multiple GPUs training
     2.  track and save best model on validation set
-TODO:
-    1.  running mean of model
-    2.  plot the validation loss and training loss
-    3.  hyper-papameter random search (on a mini sub-set)
 '''
 
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.backends import cudnn
+import torch.backends.cudnn as cudnn
 
-import os
+from progress.bar import Bar
+from utils.logger import Logger
+from utils.misc import save_model
+from utils.osutils import mkdir_p, isfile, isdir, join
+from utils.loss import AverageMeter, Criterion
+from utils.opts import opt
+
 import pdb
-import copy
-import argparse
 import time
-from datetime import datetime
 
-from data_loader import *
-from model import *
-from loss  import *
+from dataloader.data_loader import get_dataloaders
+from model.model import DemoNet, weight_init
 
-parser = argparse.ArgumentParser()
-# training parameters
-parser.add_argument('--lr',type=float, default=1e-3, help='initial learning rate')
-parser.add_argument('--momentum',type=float, default=0.9, help='SGD momemtum')
-parser.add_argument('--weight_decay',type=float, default=1e-4, help='weight decay')
-parser.add_argument('--epoch_num', type=int, default=100, help='number of epoches to train')
-# dataloader parameters
-parser.add_argument('--workers', type=int, default=16, help='number of data loading workers')
-parser.add_argument('--batch_size', type=int, default=64, help='input batch size')
-parser.add_argument('--subsize', type=float, default=1, help='the propotion of dataset to use')
-# model parameters
-parser.add_argument('--pretrain', type=str, default='', help='pretrained model to load')
-# other parameters
-parser.add_argument('--display', type=int, default=1, help='how often to output results')
+from pprint import pprint
+print("\n==================Options=================")
+pprint(vars(opt), indent=4)
+print("==========================================\n")
 
-opt = parser.parse_args()
-print(opt)
-
-def save(model, path):
-    if hasattr(model, 'module'):
-        # wrapped by nn.DataParallel
-        torch.save(model.module.state_dict(), path)
-    else:
-        torch.save(model.state_dict(), path)
-
-def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=1):
+def train_model(model, dataloaders, optimizer, scheduler, num_epochs=1):
     since = time.time()
-
-    best_model_wts = copy.deepcopy(model.state_dict())
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    logger = Logger(join(opt.output, f'log.txt'))
+    logger.set_names(['Epoch', 'LR', 'Train Loss', 'Val Loss'])
     best_loss = 1e5 # set to some large enough value
 
-    logfile = '{}.log'.format(datetime.now().strftime('%Y%m%d%H%M%S'))
-
+    criterion = Criterion()
+    epoch_loss  = dict()
     for epoch in range(num_epochs):
         scheduler.step()
-        lr = scheduler.get_lr()[0]
-        print("\n==================Epoch=================")
-        print(f'Epoch: {epoch}/{num_epochs-1}')
-        print(f'lr: {lr:.3E}')
-        print("========================================\n")
+        lr = scheduler.get_lr()[-1]
+        print(f'Epoch: {epoch+1}/{num_epochs} LR: {lr:.3E}')
 
         # Each epoch has a training and validation phase
         for phase in ['train', 'val']:
             if phase == 'train':
                 model.train()  # Set model to training mode
-                loss_meter = LossMeter(criterion, accumulate=False)
             else:
                 model.eval()   # Set model to evaluate mode
-                loss_meter = LossMeter(criterion, accumulate=True)
 
             # Iterate over data.
-            for i,(inputs, labels) in enumerate(dataloaders[phase]):
-                inputs = inputs.to(device).float() # requires_grad=False by default
-                labels = labels.to(device).float()
+            batch_time  = AverageMeter()
+            data_time   = AverageMeter()
+            loss_meter  = AverageMeter()
+
+            end = time.time()
+            bar_name = 'Training' if phase=='train' else 'Testing '
+            num_batch = len(dataloaders[phase])
+            bar = Bar(bar_name, max=num_batch)
+            # Iterate over data.
+            for i,(inputs, targets) in enumerate(dataloaders[phase]):
+                # measure data loading time
+                data_time.update(time.time() - end)
+
+                # move data to GPU
+                inputs  = inputs.to(device).float()
+                targets = targets.to(device).float()
 
                 # zero the parameter gradients
                 optimizer.zero_grad()
@@ -86,71 +73,66 @@ def train_model(model, dataloaders, criterion, optimizer, scheduler, num_epochs=
                 # track history if only in train
                 with torch.set_grad_enabled(phase == 'train'):
                     outputs = model(inputs)
-                    loss = loss_meter.update(outputs, labels)
-                    info = loss_meter.get_info()
+                    loss, _ = criterion.eval(outputs, targets)
 
-                    # backward + optimize only if in training phase
-                    if phase == 'train':
-                        loss.backward()
-                        optimizer.step()
+                # measure accuracy and record loss
+                loss_meter.update(loss.item(), inputs.shape[0])
+                # backward + optimize only if in training phase
+                if phase == 'train':
+                    loss.backward()
+                    optimizer.step()
 
-                if (i%opt.display==0) or (phase=='test'):
-                    info = 'Epoch: {:0>3d} {:0>5d}/{:0>5d} '.format(epoch, i, len(dataloaders[phase])) + info
-                    print(info)
-                    with open('log/{}_{}'.format(phase,logfile),'a') as f:
-                        f.write(info+'\n')
+                # measure elapsed time
+                batch_time.update(time.time() - end)
+                end = time.time()
 
-            # deep copy the model
-            if phase == 'val':
-                epoch_loss = loss_meter.get_avg()
-                if epoch_loss < best_loss:
-                    best_loss = epoch_loss
-                    # saving model
-                    save(model, 'ckpt/model_best.pth')
+                # plot progress
+                bar.suffix  = f'({i+1:04d}/{num_batch:04d}) Data: {data_time.val:.6f}s | Batch: {batch_time.val:.3f}s | Total: {bar.elapsed_td:} | ETA: {bar.eta_td:} | Loss: {loss_meter.avg:.4f}'
+                bar.next()
+            bar.finish()
+            epoch_loss[phase]  = loss_meter.avg
 
-    time_elapsed = time.time() - since
-    print('Training complete in {:.0f}m {:.0f}s'.format(
-        time_elapsed // 60, time_elapsed % 60))
-    print('Best val Acc: {:4f}'.format(best_loss))
-
+            # save last model 
+            if phase == 'train':
+                save_model(model, join(opt.output, f'last.pth'))
+            else:
+                is_best = epoch_loss['val'] < best_loss
+                if is_best:
+                    best_loss = epoch_loss['val']
+                    save_model(model, join(opt.output, f'best.pth'))
+        # append logger file
+        logger.append(f'{epoch+1:>3d}\t{lr:.3E}\t{epoch_loss["train"]:.6f}\t{epoch_loss["val"]:.6f}')
 
 if __name__ == '__main__':
-    # set random seed
-    torch.manual_seed(int('0xABCDFE9',16))
+    # set random seed for reproduction
+    torch.manual_seed(int('0xABCDEF',16))
 
-    # set True for possible higher speed. Comment it out if running out of memery
+    # set True for possible higher speed. set False for BN stability
     cudnn.benchmark = True
 
     # Device
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     # Create Model and DataParallel
-    net = get_model(nin=128,nout=128).float()
+    net = DemoNet(nin=128,nout=128)
 
     # print the number of parameters
-    print(">>> total params: {:.2f}M".format(sum(p.numel() for p in net.parameters()) / 1000000.0))
+    print(">>> total params: {:.2f}M".format(sum(p.numel() for p in net.parameters()) / 1.0e6))
 
     # initialize network
     net.apply(weight_init)
 
     # load a pretrained model if required
-    if (opt.pretrain != ''):
-        net.load_state_dict(torch.load(opt.pretrain))
+    #net.load_state_dict(torch.load('path/to/pretrain.pth'))
 
     if torch.cuda.device_count() > 1:
         print("Let's use", torch.cuda.device_count(), "GPUs!")
         net = nn.DataParallel(net)
     net.to(device)
 
-    # print the network
-    print(net)
-
-    # choose a loss function
-    criterion = nn.MSELoss()
-
     # choose an optimizer
     #optimizer = optim.Adam(net.parameters(), lr=opt.lr, weight_decay=opt.weight_decay)
-    optimizer = optim.SGD( net.parameters(), lr=opt.lr, momentum=opt.momentum, weight_decay=opt.weight_decay, nesterov=True)
+    optimizer = optim.SGD( net.parameters(), lr=opt.lr, momentum=opt.momentum, weight_decay=opt.wd, nesterov=True)
     #optimizer = optim.RMSprop(net.parameters(), lr=opt.lr, momentum=opt.momentum, weight_decay=opt.weight_decay)
 
     # choose a learning rate scheduler
@@ -159,7 +141,12 @@ if __name__ == '__main__':
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
     #scheduler = optim.lr_scheduler.MultiStepLR(optimizer, milestones=[30,80], gamma=0.1)
 
-    dataloaders = get_dataloaders(batch_size=opt.batch_size, num_workers=opt.workers, subsize=opt.subsize)
+    dataloaders = get_dataloaders(batch_size=opt.batch_size, num_workers=opt.workers)
+
+    # create checkpoint dir
+    #opt.output = f'{opt.output}'
+    if not isdir(opt.output):
+        mkdir_p(opt.output)
 
     # train model
-    train_model(net, dataloaders, criterion, optimizer, scheduler, num_epochs=opt.epoch_num)
+    train_model(net, dataloaders, optimizer, scheduler, num_epochs=opt.epoch)
