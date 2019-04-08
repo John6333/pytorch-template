@@ -23,23 +23,21 @@ from dataloader.data_loader import get_dataloaders
 from model.model import DemoNet, weight_init
 
 from pprint import pprint
-print("\n==================Options=================")
-pprint(vars(opt), indent=4)
-print("==========================================\n")
 
 def train_model(model, dataloaders, optimizer, scheduler, num_epochs=1):
     since = time.time()
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     logger = Logger(join(opt.output, f'log.txt'))
-    logger.set_names(['Epoch', 'LR', 'Train Loss', 'Val Loss'])
     best_loss = 1e5 # set to some large enough value
 
     criterion = Criterion()
-    epoch_loss  = dict()
+    data_dict = dict()
     for epoch in range(num_epochs):
         scheduler.step()
         lr = scheduler.get_lr()[-1]
         print(f'Epoch: {epoch+1}/{num_epochs} LR: {lr:.3E}')
+        data_dict['Epoch'] = epoch
+        data_dict['LR'] = lr
 
         # Each epoch has a training and validation phase
         for phase in ['train', 'val']:
@@ -90,20 +88,24 @@ def train_model(model, dataloaders, optimizer, scheduler, num_epochs=1):
                 bar.suffix  = f'({i+1:04d}/{num_batch:04d}) Data: {data_time.val:.6f}s | Batch: {batch_time.val:.3f}s | Total: {bar.elapsed_td:} | ETA: {bar.eta_td:} | Loss: {loss_meter.avg:.4f}'
                 bar.next()
             bar.finish()
-            epoch_loss[phase]  = loss_meter.avg
+            data_dict[f'{phase} Loss'] = loss_meter.avg
 
             # save last model 
             if phase == 'train':
                 save_model(model, join(opt.output, f'last.pth'))
             else:
-                is_best = epoch_loss['val'] < best_loss
+                is_best = data_dict[f'val Loss'] < best_loss
                 if is_best:
-                    best_loss = epoch_loss['val']
+                    best_loss = data_dict[f'val Loss']
                     save_model(model, join(opt.output, f'best.pth'))
-        # append logger file
-        logger.append(f'{epoch+1:>3d}\t{lr:.3E}\t{epoch_loss["train"]:.6f}\t{epoch_loss["val"]:.6f}')
+        # update the log
+        logger.update(data_dict)
 
 if __name__ == '__main__':
+    print("\n==================Options=================")
+    pprint(vars(opt), indent=4)
+    print("==========================================\n")
+
     # set random seed for reproduction
     torch.manual_seed(int('0xABCDEF',16))
 
